@@ -23,6 +23,7 @@ We recommend installing the following packages in a fresh anaconda environment. 
 - NumPy 
 - SciPy
 - Gensim
+- TQDM
 - Librosa
 - NVIDIA Apex (for mixed-precision training on HowTo100M) (https://github.com/NVIDIA/apex)
 ## Download the Model Weights and Data
