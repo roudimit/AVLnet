@@ -70,6 +70,15 @@ elif args.msrvtt:
         training=True,
         tri_modal=args.tri_modal,
     )
+elif args.smit:
+    dataset = SMiT_DataLoader(
+        data_path=args.smit_train_path,
+        we=we,
+        max_words=args.max_words,
+        we_dim=args.we_dim,
+        num_frames_multiplier=args.smit_num_frames_multiplier,
+        tri_modal=args.tri_modal,
+    )
 else:
     dataset = Youtube_DataLoader(
         csv=args.train_csv,

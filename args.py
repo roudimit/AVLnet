@@ -124,5 +124,8 @@ def get_args(description='Youtube-Text-Video'):
         type=str,
         default='data/msrvtt_train.pkl',
         help='')
+    parser.add_argument('--smit', type=int, default=0, help='Train on S-MiT data')
+    parser.add_argument('--smit_num_frames_multiplier', type=int, default=20, help='use 1024 * x audio frames for S-MiT captions')
+    parser.add_argument('--smit_train_path', type=str, default='data/smit_train.pkl')
     args = parser.parse_args()
     return args

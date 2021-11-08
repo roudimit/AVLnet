@@ -22,7 +22,7 @@ class SMiT_DataLoader(Dataset):
             we,
             we_dim=300,
             max_words=30,
-            num_frames_multiplier=5,
+            num_frames_multiplier=20, # captions should be no longer than 20s
             tri_modal=False,    
     ):
         """
@@ -67,6 +67,7 @@ class SMiT_DataLoader(Dataset):
         video = th.cat((feat_2d, feat_3d))
 
         # load audio and zero pad/truncate if necessary
+        """
         caption_audio_file = self.data[idx]['spoken_caption_path']
         audio_to_spectrograms.extract_audio(caption_audio_file, 'temp1.wav', sys.stdout)
         audio_to_spectrograms.stereo_to_mono_downsample('temp1.wav', 'temp2.wav', 48000)
@@ -74,7 +75,11 @@ class SMiT_DataLoader(Dataset):
         caption_audio_feats = feats
         os.remove('temp1.wav')
         os.remove('temp2.wav')
- 
+        """
+        caption_audio_file = 'data3/scratch/layne/S-MiT/caption_audio/'+self.data[idx]['id']+'.wav'
+        feats, frames = audio_to_spectrograms.LoadAudio(caption_audio_file)
+        caption_audio_feats = feats
+        
         target_length = 1024 * self.num_frames_multiplier
         nframes = caption_audio_feats.shape[1]
         assert nframes == frames
@@ -86,8 +91,9 @@ class SMiT_DataLoader(Dataset):
         caption_audio_feats = th.FloatTensor(caption_audio_feats)
 
         # TODO: video audio
-        natural_audio_feats = None # should this be an empty tensor?
+        natural_audio_feats = None # should this be an empty tensor? Yes. what shape?
         if self.data[idx]['has_audio']:
+            """
             natural_audio_file = self.data[idx]['video_path']
             audio_to_spectrograms.extract_audio(caption_audio_file, 'temp1.wav', sys.stdout)
             audio_to_spectrograms.stereo_to_mono_downsample('temp1.wav', 'temp2.wav', 48000)
@@ -95,8 +101,12 @@ class SMiT_DataLoader(Dataset):
             natural_audio_feats = feats
             os.remove('temp1.wav')
             os.remove('temp2.wav')
+            """
+            natural_audio_file = 'data3/scratch/layne/S-MiT/natural_audio/'+self.data[idx]['id']+'.wav'
+            feats, frames = audio_to_spectrograms.LoadAudio(natural_audio_file)
+            natural_audio_feats = feats
 
-            target_length = 1024 * self.num_frames_multiplier
+            target_length = 1024 * 3 # All clips are 3s long, so no self.num_frames_multiplier
             nframes = natural_audio_feats.numpy().shape[1]
             assert nframes == frames
             p = target_length - nframes
