@@ -147,7 +147,7 @@ AVLnet - Bibtex:
 ```
 
 Cascaded Multilingual - Bibtex:
-```
+```bibtex
 @article{rouditchenko2021cascaded,
   title={Cascaded Multilingual Audio-Visual Learning from Videos},
   author={Rouditchenko, Andrew and Boggust, Angie and Harwath, David and Thomas, Samuel and Kuehne, Hilde and Chen, Brian and Panda, Rameswar and Feris, Rogerio and Kingsbury, Brian and Picheny, Michael and others},
