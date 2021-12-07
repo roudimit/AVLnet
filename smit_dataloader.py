@@ -18,7 +18,7 @@ class SMiT_DataLoader(Dataset):
 
     def __init__(
             self,
-            data,
+            data_path,
             we,
             we_dim=300,
             max_words=30,
@@ -28,7 +28,7 @@ class SMiT_DataLoader(Dataset):
         """
         Args:
         """
-        self.data = pickle.load(open(data, 'rb'))
+        self.data = pickle.load(open(data_path, 'rb'))
         self.we = we
         self.we_dim = we_dim
         self.max_words = max_words
@@ -76,45 +76,46 @@ class SMiT_DataLoader(Dataset):
         os.remove('temp1.wav')
         os.remove('temp2.wav')
         """
-        caption_audio_file = 'data3/scratch/layne/S-MiT/caption_audio/'+self.data[idx]['id']+'.wav'
-        feats, frames = audio_to_spectrograms.LoadAudio(caption_audio_file)
-        caption_audio_feats = feats
+        caption_audio_file = '/nobackup/users/lynberry/caption_audio/'+self.data[idx]['id']+'.wav'
+        caption_audio_feats = th.zeros((40,1024*self.num_frames_multiplier),dtype=th.float)
+        nframes = 0
+        try:
+            feats, frames = audio_to_spectrograms.LoadAudio(caption_audio_file, use_raw_length=True)
+            caption_audio_feats = feats
         
-        target_length = 1024 * self.num_frames_multiplier
-        nframes = caption_audio_feats.shape[1]
-        assert nframes == frames
-        p = target_length - nframes
-        if p > 0:
-            caption_audio_feats = np.pad(caption_audio_feats, ((0,0),(0,p)), 'constant', constant_values=(0,0))
-        elif p < 0:
-            caption_audio_feats = caption_audio_feats[:,0:p]
-        caption_audio_feats = th.FloatTensor(caption_audio_feats)
-
-        # TODO: video audio
-        natural_audio_feats = None # should this be an empty tensor? Yes. what shape?
-        if self.data[idx]['has_audio']:
-            """
-            natural_audio_file = self.data[idx]['video_path']
-            audio_to_spectrograms.extract_audio(caption_audio_file, 'temp1.wav', sys.stdout)
-            audio_to_spectrograms.stereo_to_mono_downsample('temp1.wav', 'temp2.wav', 48000)
-            feats, frames = audio_to_spectrograms.LoadAudio('temp2.wav')
-            natural_audio_feats = feats
-            os.remove('temp1.wav')
-            os.remove('temp2.wav')
-            """
-            natural_audio_file = 'data3/scratch/layne/S-MiT/natural_audio/'+self.data[idx]['id']+'.wav'
-            feats, frames = audio_to_spectrograms.LoadAudio(natural_audio_file)
-            natural_audio_feats = feats
-
-            target_length = 1024 * 3 # All clips are 3s long, so no self.num_frames_multiplier
-            nframes = natural_audio_feats.numpy().shape[1]
+            target_length = 1024 * self.num_frames_multiplier
+            nframes = caption_audio_feats.shape[1]
             assert nframes == frames
             p = target_length - nframes
             if p > 0:
-                natural_audio_feats = np.pad(natural_audio_feats, ((0,0),(0,p)), 'constant', constant_values=(0,0))
+                caption_audio_feats = np.pad(caption_audio_feats, ((0,0),(0,p)), 'constant', constant_values=(0,0))
             elif p < 0:
-                nautral_audio_feats = natural_audio_feats[:,0:p]
-            natural_audio_feats = th.FloatTensor(natural_audio_feats)
+                caption_audio_feats = caption_audio_feats[:,0:p]
+            caption_audio_feats = th.FloatTensor(caption_audio_feats)
+        except:
+            ... #print("failed on file", caption_audio_file)
+
+        natural_audio_feats = th.zeros((40,3072),dtype=th.float) # should this be an empty tensor? Yes. what shape?
+        if self.data[idx]['has_audio']:
+            try:
+                natural_audio_file = '/nobackup/users/lynberry/natural_audio/'+self.data[idx]['id']+'.wav'
+                feats, frames = audio_to_spectrograms.LoadAudio(natural_audio_file, use_raw_length=True)
+                natural_audio_feats = feats
+    
+                target_length = 1024 * 3 # All clips are 3s long, so no self.num_frames_multiplier
+                nframes = natural_audio_feats.shape[1]
+                assert nframes == frames
+                p = target_length - nframes
+                if p > 0:
+                    natural_audio_feats = np.pad(natural_audio_feats, ((0,0),(0,p)), 'constant', constant_values=(0,0))
+                elif p < 0:
+                    natural_audio_feats = natural_audio_feats[:,0:p]
+                natural_audio_feats = th.FloatTensor(natural_audio_feats)
+            except:
+                ... #print("failed on file", natural_audio_file)
+            if natural_audio_feats.shape[1] != 3072:
+                print("file", natural_audio_file, "has feats shape", natural_audio_feats.shape)
+                print("p was", p, "with target length", target_length, "and nframes", nframes)
 
         caption = ''
         if self.tri_modal:
@@ -130,9 +131,13 @@ class SMiT_DataLoader(Dataset):
         text_sim = np.array(1)
         if 'text_sim' in self.data[idx]: # TODO: this will always fail atm
             text_sim = self.data[idx]['text_sim']
-            
+
+        assert caption_audio_feats.shape[1] == 20480
+        assert natural_audio_feats.shape[1] == 3072
+        # print("caption_audio_feats.shape", caption_audio_feats.shape)
+        # print("natural_audio_feats.shape", natural_audio_feats.shape)
         return {'video': video, 'text': caption, 'video_id': self.data[idx]['id'],
-                'caption_audio': caption_audio_feats, 'natural_audio': natural_audio_feats,
+                'audio': caption_audio_feats, 'natural_audio': natural_audio_feats,
                 'nframes': nframes, 'task': task, 'start': start, 'end': end, 
                 'vid_id': vid_id, 'text_sim': text_sim}
         

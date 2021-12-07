@@ -22,8 +22,10 @@ import torch.optim as optim
 from youtube_dataloader import Youtube_DataLoader
 from youcook_dataloader import Youcook_DataLoader
 from msrvtt_dataloader import MSRVTT_DataLoader
+from smit_dataloader import SMiT_DataLoader
 from model import Net
 from loss import MMS_loss
+from loss import AMM_loss
 from metrics import compute_metrics, print_computed_metrics, AverageMeter
 
 args = get_args()
@@ -137,17 +139,35 @@ if args.eval_msrvtt:
         shuffle=False,
         drop_last=False,
     )
+if args.eval_smit:
+    smit_testset = SMiT_DataLoader(
+        data_path=args.smit_val_path,
+        we=we,
+        max_words=args.max_words,
+        we_dim=args.we_dim,
+        num_frames_multiplier=args.smit_num_frames_multiplier,
+        tri_modal=args.tri_modal,
+    )
+    dataloader_smit = DataLoader(
+        smit_testset,
+        batch_size=args.batch_size_val,
+        num_workers=args.num_thread_reader,
+        shuffle=False,
+    )
 net = Net(
     embd_dim=args.embd_dim,
     video_dim=args.feature_dim,
     we_dim=args.we_dim,
     tri_modal=args.tri_modal,
     tri_modal_fuse=args.tri_modal_fuse,
+    natural_audio=args.natural_audio,
 )
 
 # Optimizers + Loss
 if args.loss == 0:
     loss_op = MMS_loss()
+elif args.loss == 1:
+    loss_op = AMM_loss()
 net.cuda()
 loss_op.cuda()
 optimizer = optim.Adam(net.parameters(), lr=args.lr)
@@ -173,9 +193,14 @@ elif args.pretrain_path != '' and args.apex_level == 0:
 if args.verbose:
     print('Starting training loop ...')
 
-def TrainOneBatch(model, opt, data, loss_fun, apex=False):
+def TrainOneBatch(model, opt, data, loss_fun, apex=False, use_natural_audio=False):
     video = data['video'].cuda()
     audio = data['audio'].cuda()
+    if use_natural_audio:
+        natural_audio = data['natural_audio'].cuda()
+        natural_audio = natural_audio.view(-1, natural_audio.shape[-2], natural_audio.shape[-1])
+    else:
+        natural_audio = None
     nframes = data['nframes'].cuda()
     video = video.view(-1, video.shape[-1])
     audio = audio.view(-1, audio.shape[-2], audio.shape[-1])
@@ -186,11 +211,11 @@ def TrainOneBatch(model, opt, data, loss_fun, apex=False):
             text = data['text'].cuda()
             text = text.view(-1, text.shape[-2], text.shape[-1])
             if args.tri_modal_fuse: # AVLnet-Text audio-text fusion model
-                audio_text, video = model(video, audio, nframes, text)
+                audio_text, video = model(video, audio, nframes, text=text, natural_audio=natural_audio)
                 sim_audiotext_video = th.matmul(audio_text, video.t())
                 loss = loss_fun(sim_audiotext_video)
             else: # AVLnet-Text independent audio and text branches
-                audio, video, text = model(video, audio, nframes, text)
+                audio, video, text = model(video, audio, nframes, text=text, natural_audio=natural_audio)
                 if args.fuse_videoaudio_additive: # only used for fine-tuning
                     audio_video = audio + video
                     sim_text_audiovideo = th.matmul(text, audio_video.t())
@@ -201,7 +226,7 @@ def TrainOneBatch(model, opt, data, loss_fun, apex=False):
                     sim_text_video = th.matmul(text, video.t())
                     loss = loss_fun(sim_audio_video) + loss_fun(sim_audio_text) + loss_fun(sim_text_video)
         else:
-            audio, video = model(video, audio, nframes)
+            audio, video = model(video, audio, nframes, natural_audio=natural_audio)
             sim_matrix = th.matmul(audio, video.t())
             loss = loss_fun(sim_matrix)
     if apex:
@@ -212,25 +237,30 @@ def TrainOneBatch(model, opt, data, loss_fun, apex=False):
     opt.step()
     return loss.item()
 
-def Eval_retrieval(model, eval_dataloader, dataset_name):
+def Eval_retrieval(model, eval_dataloader, dataset_name, use_natural_audio=False):
     model.eval()
     print('Evaluating retrieval on {} data'.format(dataset_name))
     with th.no_grad():
         for data in eval_dataloader:
             video = data['video'].cuda()
             audio = data['audio'].cuda()
+            if use_natural_audio:
+                natural_audio = data['natural_audio'].cuda()
+                natural_audio = natural_audio.view(-1, natural_audio.shape[-2], natural_audio.shape[-1])
+            else:
+                natural_audio = None
             nframes = data['nframes'].cuda()
             if args.tri_modal:
                 text = data['text'].cuda()
                 if args.tri_modal_fuse: # AVLnet-Text
-                    audio_text, video = model(video, audio, nframes, text)
+                    audio_text, video = model(video, audio, nframes, text=text, natural_audio=natural_audio)
                     m = th.matmul(audio_text, video.t()).cpu().detach().numpy()
                 elif args.fuse_videoaudio_additive: # eval T->V+A for AVLnet-Text indep. model
-                    audio, video, text = model(video, audio, nframes, text)
+                    audio, video, text = model(video, audio, nframes, text=text, natural_audio=natural_audio)
                     audio_video = audio + video
                     m = th.matmul(text, audio_video.t()).cpu().detach().numpy()
             else:
-                audio, video = model(video, audio, nframes)
+                audio, video = model(video, audio, nframes, natural_audio=natural_audio)
                 m = th.matmul(audio, video.t()).cpu().detach().numpy()
             metrics = compute_metrics(m, args.eval_lang_retrieval, args.eval_msrvtt)
             print_computed_metrics(metrics)
@@ -243,13 +273,15 @@ for epoch in range(args.epochs):
         Eval_retrieval(net, dataloader_val, 'YouCook2')
     if args.eval_msrvtt:
         Eval_retrieval(net, dataloader_msrvtt, 'MSR-VTT')
+    if args.eval_smit:
+        Eval_retrieval(net, dataloader_smit, 'S-MiT', args.natural_audio)
     if args.verbose:
         print('Epoch: %d' % epoch)
     end_time = time.time()
     for i_batch, sample_batch in enumerate(tqdm(dataloader)):
         data_load_time = time.time() - end_time
         data_time.update(data_load_time)
-        batch_loss = TrainOneBatch(net, optimizer, sample_batch, loss_op, apex)
+        batch_loss = TrainOneBatch(net, optimizer, sample_batch, loss_op, apex, args.natural_audio)
         process_batch_time = time.time() - end_time
         batch_time.update(process_batch_time)
         running_loss += batch_loss
@@ -281,3 +313,5 @@ if args.eval_youcook:
     Eval_retrieval(net, dataloader_val, 'YouCook2')
 if args.eval_msrvtt:
     Eval_retrieval(net, dataloader_msrvtt, 'MSR-VTT')
+if args.eval_smit:
+    Eval_retrieval(net, dataloader_smit, 'S-MiT', args.natural_audio)

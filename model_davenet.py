@@ -77,9 +77,13 @@ class ResDavenet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        # print('x shape', x.shape)
         if x.dim() == 3:
             x = x.unsqueeze(1)
-        x = self.conv1(x)
+        # print('x shape after unsqueezing', x.shape)
+        x = self.conv1(x).contiguous()
+        # print('x shape after conv1', x.shape)
+        # .contiguous() was added by LAYNE 11/16/2021
         x = self.bn1(x)
         x = self.relu(x)
         x = self.layer1(x)

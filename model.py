@@ -16,12 +16,19 @@ class Net(nn.Module):
             we_dim=300,
             tri_modal=False,
             tri_modal_fuse=False,
+            natural_audio=False,
     ):
         super(Net, self).__init__()
         self.DAVEnet = load_DAVEnet()
         self.DAVEnet_projection = nn.Linear(1024, embd_dim)
         self.GU_audio = Gated_Embedding_Unit(1024, 1024)
-        self.GU_video = Gated_Embedding_Unit(video_dim, embd_dim)
+        if natural_audio:
+            self.GU_video = Gated_Embedding_Unit(video_dim+embd_dim, embd_dim)
+            self.nat_DAVEnet = load_DAVEnet()
+            self.nat_DAVEnet_projection = nn.Linear(1024, embd_dim)
+            self.nat_GU_audio = Gated_Embedding_Unit(1024, 1024)
+        else:
+            self.GU_video = Gated_Embedding_Unit(video_dim, embd_dim)
         if tri_modal and not tri_modal_fuse:
             self.text_pooling_caption = Sentence_Maxpool(we_dim, embd_dim)
             self.GU_text_captions = Gated_Embedding_Unit(embd_dim, embd_dim)
@@ -31,6 +38,7 @@ class Net(nn.Module):
             self.GU_audio_text = Fused_Gated_Unit(embd_dim // 2, embd_dim)
         self.tri_modal = tri_modal
         self.tri_modal_fuse = tri_modal_fuse
+        self.natural_audio = natural_audio
 
     def save_checkpoint(self, path):
         th.save(self.state_dict(), path)
@@ -44,13 +52,22 @@ class Net(nn.Module):
             self.load_state_dict(th.load(path, map_location='cpu'), strict=False)
         print("Loaded model checkpoint from {}".format(path))
 
-    def forward(self, video, audio_input, nframes, text=None):
-        video = self.GU_video(video)
+    def forward(self, video, audio_input, nframes, text=None, natural_audio=None):
+        if natural_audio != None:
+            natural_audio = self.nat_DAVEnet(natural_audio)
+            natural_audio = natural_audio.mean(dim=2) # ask if I need the if/else
+            natural_audio = self.nat_GU_audio(natural_audio)
+            natural_audio = self.nat_DAVEnet_projection(natural_audio)
+            video = self.GU_video(th.cat((video, natural_audio),dim=1))
+        else:
+            video = self.GU_video(video)
         audio = self.DAVEnet(audio_input)
         if not self.training: # controlled by net.train() / net.eval() (use for downstream tasks) 
             # Mean-pool audio embeddings and disregard embeddings from input 0 padding
             pooling_ratio = round(audio_input.size(-1) / audio.size(-1))
+            nframes = nframes.float()
             nframes.div_(pooling_ratio)
+            nframes = nframes.long()
             audioPoolfunc = th.nn.AdaptiveAvgPool2d((1, 1))
             audio_outputs = audio.unsqueeze(2)
             pooled_audio_outputs_list = []

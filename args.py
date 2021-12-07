@@ -48,8 +48,9 @@ def get_args(description='Youtube-Text-Video'):
     parser.add_argument('--fuse_videoaudio_additive', type=int, default=0,
                             help='eval T->A+V with tri-modal modal \
                                   set tri_modal=1, tri_modal_fuse=0')
+    parser.add_argument('--natural_audio', type=int, default=0, help='use natural audio in video encoding')
     parser.add_argument('--loss', type=int, default=0,
-                                help='0 for Masked Margin Softmax (MMS) loss')
+                                help='0 for Masked Margin Softmax (MMS) loss, 1 for Adaptive Mean Margin (AMM) loss')
     parser.add_argument('--apex_level', type=int, default=0,
                                 help='Apex (mixed precision) level: chose 0 for none, 1 for O1.')
     parser.add_argument('--random_audio_windows', type=int, default=1,
@@ -102,6 +103,7 @@ def get_args(description='Youtube-Text-Video'):
                                 help='Evaluate on MSRVTT data')
     parser.add_argument('--eval_youcook', type=int, default=0,
                                 help='Evaluate on YouCook2 data')
+    parser.add_argument('--eval_smit', type=int, default=0, help='Evaluate on S-MiT data')
     parser.add_argument('--sentence_dim', type=int, default=-1,
                                 help='sentence dimension')
     parser.add_argument(
@@ -127,5 +129,6 @@ def get_args(description='Youtube-Text-Video'):
     parser.add_argument('--smit', type=int, default=0, help='Train on S-MiT data')
     parser.add_argument('--smit_num_frames_multiplier', type=int, default=20, help='use 1024 * x audio frames for S-MiT captions')
     parser.add_argument('--smit_train_path', type=str, default='data/smit_train.pkl')
+    parser.add_argument('--smit_val_path', type=str, default='data/smit_val.pkl')
     args = parser.parse_args()
     return args
