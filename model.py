@@ -52,31 +52,43 @@ class Net(nn.Module):
             self.load_state_dict(th.load(path, map_location='cpu'), strict=False)
         print("Loaded model checkpoint from {}".format(path))
 
-    def forward(self, video, audio_input, nframes, text=None, natural_audio=None):
-        if natural_audio != None:
-            natural_audio = self.nat_DAVEnet(natural_audio)
-            natural_audio = natural_audio.mean(dim=2) # ask if I need the if/else
+    def forward(self, video, audio_input, nframes, text=None, natural_audio_input=None):
+        if natural_audio_input != None:
+            natural_audio = self.nat_DAVEnet(natural_audio_input)
+            # pooling
+            pooling_ratio = round(natural_audio_input.size(-1) / natural_audio.size(-1))
+            nframes = nframes.float()
+            nframes.div_(pooling_ratio)
+            nframes = nframes.long()
+            audioPoolfunc = th.nn.AdaptiveAvgPool2d((1,1))
+            natural_audio_outputs = natural_audio.unsqueeze(2)
+            pooled_natural_audio_outputs_list = []
+            for idx in range(natural_audio.shape[0]):
+                nF = max(1, nframes[idx])
+                pooled_natural_audio_outputs_list.append(audioPoolfunc(natural_audio_outputs[idx][:, :, 0:nF]).unsqueeze(0))
+            natural_audio = th.cat(pooled_natural_audio_outputs_list).squeeze(3).squeeze(2)
+            # done pooling
             natural_audio = self.nat_GU_audio(natural_audio)
             natural_audio = self.nat_DAVEnet_projection(natural_audio)
             video = self.GU_video(th.cat((video, natural_audio),dim=1))
         else:
             video = self.GU_video(video)
         audio = self.DAVEnet(audio_input)
-        if not self.training: # controlled by net.train() / net.eval() (use for downstream tasks) 
-            # Mean-pool audio embeddings and disregard embeddings from input 0 padding
-            pooling_ratio = round(audio_input.size(-1) / audio.size(-1))
-            nframes = nframes.float()
-            nframes.div_(pooling_ratio)
-            nframes = nframes.long()
-            audioPoolfunc = th.nn.AdaptiveAvgPool2d((1, 1))
-            audio_outputs = audio.unsqueeze(2)
-            pooled_audio_outputs_list = []
-            for idx in range(audio.shape[0]):
-                nF = max(1, nframes[idx])
-                pooled_audio_outputs_list.append(audioPoolfunc(audio_outputs[idx][:, :, 0:nF]).unsqueeze(0))
-            audio = th.cat(pooled_audio_outputs_list).squeeze(3).squeeze(2)
-        else:
-            audio = audio.mean(dim=2) # this averages features from 0 padding too
+        #if not self.training: # controlled by net.train() / net.eval() (use for downstream tasks) 
+        # Mean-pool audio embeddings and disregard embeddings from input 0 padding
+        pooling_ratio = round(audio_input.size(-1) / audio.size(-1))
+        nframes = nframes.float()
+        nframes.div_(pooling_ratio)
+        nframes = nframes.long()
+        audioPoolfunc = th.nn.AdaptiveAvgPool2d((1, 1))
+        audio_outputs = audio.unsqueeze(2)
+        pooled_audio_outputs_list = []
+        for idx in range(audio.shape[0]):
+            nF = max(1, nframes[idx])
+            pooled_audio_outputs_list.append(audioPoolfunc(audio_outputs[idx][:, :, 0:nF]).unsqueeze(0))
+        audio = th.cat(pooled_audio_outputs_list).squeeze(3).squeeze(2)
+        # else:
+        #   audio = audio.mean(dim=2) # this averages features from 0 padding too
 
         if self.tri_modal_fuse:
             text = self.text_pooling_caption(text)

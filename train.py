@@ -211,11 +211,11 @@ def TrainOneBatch(model, opt, data, loss_fun, apex=False, use_natural_audio=Fals
             text = data['text'].cuda()
             text = text.view(-1, text.shape[-2], text.shape[-1])
             if args.tri_modal_fuse: # AVLnet-Text audio-text fusion model
-                audio_text, video = model(video, audio, nframes, text=text, natural_audio=natural_audio)
+                audio_text, video = model(video, audio, nframes, text=text, natural_audio_input=natural_audio)
                 sim_audiotext_video = th.matmul(audio_text, video.t())
                 loss = loss_fun(sim_audiotext_video)
             else: # AVLnet-Text independent audio and text branches
-                audio, video, text = model(video, audio, nframes, text=text, natural_audio=natural_audio)
+                audio, video, text = model(video, audio, nframes, text=text, natural_audio_input=natural_audio)
                 if args.fuse_videoaudio_additive: # only used for fine-tuning
                     audio_video = audio + video
                     sim_text_audiovideo = th.matmul(text, audio_video.t())
@@ -226,7 +226,7 @@ def TrainOneBatch(model, opt, data, loss_fun, apex=False, use_natural_audio=Fals
                     sim_text_video = th.matmul(text, video.t())
                     loss = loss_fun(sim_audio_video) + loss_fun(sim_audio_text) + loss_fun(sim_text_video)
         else:
-            audio, video = model(video, audio, nframes, natural_audio=natural_audio)
+            audio, video = model(video, audio, nframes, natural_audio_input=natural_audio)
             sim_matrix = th.matmul(audio, video.t())
             loss = loss_fun(sim_matrix)
     if apex:
@@ -253,14 +253,14 @@ def Eval_retrieval(model, eval_dataloader, dataset_name, use_natural_audio=False
             if args.tri_modal:
                 text = data['text'].cuda()
                 if args.tri_modal_fuse: # AVLnet-Text
-                    audio_text, video = model(video, audio, nframes, text=text, natural_audio=natural_audio)
+                    audio_text, video = model(video, audio, nframes, text=text, natural_audio_input=natural_audio)
                     m = th.matmul(audio_text, video.t()).cpu().detach().numpy()
                 elif args.fuse_videoaudio_additive: # eval T->V+A for AVLnet-Text indep. model
-                    audio, video, text = model(video, audio, nframes, text=text, natural_audio=natural_audio)
+                    audio, video, text = model(video, audio, nframes, text=text, natural_audio_input=natural_audio)
                     audio_video = audio + video
                     m = th.matmul(text, audio_video.t()).cpu().detach().numpy()
             else:
-                audio, video = model(video, audio, nframes, natural_audio=natural_audio)
+                audio, video = model(video, audio, nframes, natural_audio_input=natural_audio)
                 m = th.matmul(audio, video.t()).cpu().detach().numpy()
             metrics = compute_metrics(m, args.eval_lang_retrieval, args.eval_msrvtt)
             print_computed_metrics(metrics)
