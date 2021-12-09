@@ -79,7 +79,7 @@ class Net(nn.Module):
             natural_audio = self.nat_DAVEnet_projection(natural_audio)
             if self.two_level:
                 visual = self.GU_visual(video)
-                video = self.GU_video(th.cat(visual, natural_audio),dim=1))
+                video = self.GU_video(th.cat((visual, natural_audio),dim=1))
             else:
                 video = self.GU_video(th.cat((video, natural_audio),dim=1))
         else:
