@@ -17,16 +17,22 @@ class Net(nn.Module):
             tri_modal=False,
             tri_modal_fuse=False,
             natural_audio=False,
+            two_level=False,
     ):
         super(Net, self).__init__()
         self.DAVEnet = load_DAVEnet()
         self.DAVEnet_projection = nn.Linear(1024, embd_dim)
         self.GU_audio = Gated_Embedding_Unit(1024, 1024)
         if natural_audio:
-            self.GU_video = Gated_Embedding_Unit(video_dim+embd_dim, embd_dim)
+            # self.GU_video = Gated_Embedding_Unit(video_dim+embd_dim, embd_dim)
             self.nat_DAVEnet = load_DAVEnet()
             self.nat_DAVEnet_projection = nn.Linear(1024, embd_dim)
             self.nat_GU_audio = Gated_Embedding_Unit(1024, 1024)
+            if two_level:
+                self.GU_visual = Gated_Embedding_Unit(video_dim, embd_dim)
+                self.GU_video = Gated_Embedding_Unit(2*embd_dim, embd_dim)
+            else:
+                self.GU_video = Gated_Embedding_Unit(video_dim+embd_dim, embd_dim)
         else:
             self.GU_video = Gated_Embedding_Unit(video_dim, embd_dim)
         if tri_modal and not tri_modal_fuse:
@@ -39,6 +45,7 @@ class Net(nn.Module):
         self.tri_modal = tri_modal
         self.tri_modal_fuse = tri_modal_fuse
         self.natural_audio = natural_audio
+        self.two_level = two_level
 
     def save_checkpoint(self, path):
         th.save(self.state_dict(), path)
@@ -70,7 +77,11 @@ class Net(nn.Module):
             # done pooling
             natural_audio = self.nat_GU_audio(natural_audio)
             natural_audio = self.nat_DAVEnet_projection(natural_audio)
-            video = self.GU_video(th.cat((video, natural_audio),dim=1))
+            if self.two_level:
+                visual = self.GU_visual(video)
+                video = self.GU_video(th.cat(visual, natural_audio),dim=1))
+            else:
+                video = self.GU_video(th.cat((video, natural_audio),dim=1))
         else:
             video = self.GU_video(video)
         audio = self.DAVEnet(audio_input)

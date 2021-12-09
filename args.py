@@ -49,6 +49,7 @@ def get_args(description='Youtube-Text-Video'):
                             help='eval T->A+V with tri-modal modal \
                                   set tri_modal=1, tri_modal_fuse=0')
     parser.add_argument('--natural_audio', type=int, default=0, help='use natural audio in video encoding')
+    parser.add_argument('--two_level', type=int, default=0, help='use two-level fusion to integrate natural audio')
     parser.add_argument('--loss', type=int, default=0,
                                 help='0 for Masked Margin Softmax (MMS) loss, 1 for Adaptive Mean Margin (AMM) loss')
     parser.add_argument('--apex_level', type=int, default=0,

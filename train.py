@@ -161,6 +161,7 @@ net = Net(
     tri_modal=args.tri_modal,
     tri_modal_fuse=args.tri_modal_fuse,
     natural_audio=args.natural_audio,
+    two_level=args.two_level,
 )
 
 # Optimizers + Loss
