@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch as th
 import torch.nn.functional as F
 from model_davenet import load_DAVEnet
+from ast_models import ASTModel
 
 class Net(nn.Module):
     def __init__(
@@ -18,23 +19,24 @@ class Net(nn.Module):
             tri_modal_fuse=False,
             natural_audio=False,
             two_level=False,
+            use_ast=False,
+            extra_terms=False,
     ):
         super(Net, self).__init__()
         self.DAVEnet = load_DAVEnet()
         self.DAVEnet_projection = nn.Linear(1024, embd_dim)
-        self.GU_audio = Gated_Embedding_Unit(1024, 1024)
+        self.GU_audio = TwoLayerProjection(1024, 1024)# Gated_Embedding_Unit(1024, 1024)
         if natural_audio:
-            # self.GU_video = Gated_Embedding_Unit(video_dim+embd_dim, embd_dim)
             self.nat_DAVEnet = load_DAVEnet()
             self.nat_DAVEnet_projection = nn.Linear(1024, embd_dim)
-            self.nat_GU_audio = Gated_Embedding_Unit(1024, 1024)
+            self.nat_GU_audio = TwoLayerProjection(1024, 1024)# Gated_Embedding_Unit(1024, 1024)
             if two_level:
-                self.GU_visual = Gated_Embedding_Unit(video_dim, embd_dim)
-                self.GU_video = Gated_Embedding_Unit(2*embd_dim, embd_dim)
+                self.GU_visual = TwoLayerProjection(video_dim, embd_dim)# Gated_Embedding_Unit(video_dim, embd_dim)
+                self.GU_video = TwoLayerProjection(2*embd_dim, embd_dim)# Gated_Embedding_Unit(2*embd_dim, embd_dim)
             else:
-                self.GU_video = Gated_Embedding_Unit(video_dim+embd_dim, embd_dim)
+                self.GU_video = TwoLayerProjection(video_dim+embd_dim, embd_dim)# Gated_Embedding_Unit(video_dim+embd_dim, embd_dim)
         else:
-            self.GU_video = Gated_Embedding_Unit(video_dim, embd_dim)
+            self.GU_video = TwoLayerProjection(video_dim, embd_dim)# Gated_Embedding_Unit(video_dim, embd_dim)
         if tri_modal and not tri_modal_fuse:
             self.text_pooling_caption = Sentence_Maxpool(we_dim, embd_dim)
             self.GU_text_captions = Gated_Embedding_Unit(embd_dim, embd_dim)
@@ -46,6 +48,12 @@ class Net(nn.Module):
         self.tri_modal_fuse = tri_modal_fuse
         self.natural_audio = natural_audio
         self.two_level = two_level
+        self.extra_terms = extra_terms
+        self.use_ast = use_ast
+        if use_ast:
+            self.GU_video = TwoLayerProjection(video_dim, embd_dim)# Gated_Embedding_Unit(video_dim, embd_dim)
+            self.AST = ASTModel(label_dim=embd_dim, input_fdim=40, input_tdim=1024)
+            self.mha = nn.MultiheadAttention(embed_dim=embd_dim, num_heads=2)#, batch_first=True)
 
     def save_checkpoint(self, path):
         th.save(self.state_dict(), path)
@@ -59,33 +67,43 @@ class Net(nn.Module):
             self.load_state_dict(th.load(path, map_location='cpu'), strict=False)
         print("Loaded model checkpoint from {}".format(path))
 
-    def forward(self, video, audio_input, nframes, text=None, natural_audio_input=None):
+    def forward(self, video, audio_input, nframes, text=None, natural_audio_input=None, video_unpooled=None, has_audio=None, tokens2d=None, tokens3d=None):
         if natural_audio_input != None:
-            natural_audio = self.nat_DAVEnet(natural_audio_input)
-            # pooling
-            pooling_ratio = round(natural_audio_input.size(-1) / natural_audio.size(-1))
-            nframes = nframes.float()
-            nframes.div_(pooling_ratio)
-            nframes = nframes.long()
-            audioPoolfunc = th.nn.AdaptiveAvgPool2d((1,1))
-            natural_audio_outputs = natural_audio.unsqueeze(2)
-            pooled_natural_audio_outputs_list = []
-            for idx in range(natural_audio.shape[0]):
-                nF = max(1, nframes[idx])
-                pooled_natural_audio_outputs_list.append(audioPoolfunc(natural_audio_outputs[idx][:, :, 0:nF]).unsqueeze(0))
-            natural_audio = th.cat(pooled_natural_audio_outputs_list).squeeze(3).squeeze(2)
-            # done pooling
-            natural_audio = self.nat_GU_audio(natural_audio)
-            natural_audio = self.nat_DAVEnet_projection(natural_audio)
-            if self.two_level:
-                visual = self.GU_visual(video)
-                video = self.GU_video(th.cat((visual, natural_audio),dim=1))
+            if self.use_ast:
+                natural_audio = self.AST(natural_audio_input).unsqueeze(0).float()
+                video_unpooled = video_unpooled.permute(1,0,2)
+                video_tokens = th.cat((natural_audio,video_unpooled))
+                video_tokens = video_tokens
+                query = self.GU_video(video).unsqueeze(0)
+                attn_out, _ = self.mha(query, video_tokens, video_tokens)
+                video = attn_out.squeeze()
             else:
-                video = self.GU_video(th.cat((video, natural_audio),dim=1))
+                natural_audio = self.nat_DAVEnet(natural_audio_input)
+                # pooling
+                pooling_ratio = round(natural_audio_input.size(-1) / natural_audio.size(-1))
+                nframes = nframes.float()
+                nframes.div_(pooling_ratio)
+                nframes = nframes.long()
+                audioPoolfunc = th.nn.AdaptiveAvgPool2d((1,1))
+                natural_audio_outputs = natural_audio.unsqueeze(2)
+                pooled_natural_audio_outputs_list = []
+                for idx in range(natural_audio.shape[0]):
+                    nF = max(1, nframes[idx])
+                    pooled_natural_audio_outputs_list.append(audioPoolfunc(natural_audio_outputs[idx][:, :, 0:nF]).unsqueeze(0))
+                natural_audio = th.cat(pooled_natural_audio_outputs_list).squeeze(3).squeeze(2)
+                # done pooling
+                natural_audio = self.nat_GU_audio(natural_audio)
+                natural_audio = self.nat_DAVEnet_projection(natural_audio)
+                if self.two_level:
+                    visual = self.GU_visual(video)
+                    video = self.GU_video(th.cat((visual, natural_audio),dim=1))
+                else:
+                    video = self.GU_video(th.cat((video, natural_audio),dim=1))
         else:
             video = self.GU_video(video)
-        audio = self.DAVEnet(audio_input)
-        #if not self.training: # controlled by net.train() / net.eval() (use for downstream tasks) 
+
+
+        audio = self.DAVEnet(audio_input) 
         # Mean-pool audio embeddings and disregard embeddings from input 0 padding
         pooling_ratio = round(audio_input.size(-1) / audio.size(-1))
         nframes = nframes.float()
@@ -98,8 +116,6 @@ class Net(nn.Module):
             nF = max(1, nframes[idx])
             pooled_audio_outputs_list.append(audioPoolfunc(audio_outputs[idx][:, :, 0:nF]).unsqueeze(0))
         audio = th.cat(pooled_audio_outputs_list).squeeze(3).squeeze(2)
-        # else:
-        #   audio = audio.mean(dim=2) # this averages features from 0 padding too
 
         if self.tri_modal_fuse:
             text = self.text_pooling_caption(text)
@@ -109,10 +125,13 @@ class Net(nn.Module):
 
         # Gating in lower embedding dimension (1024 vs 4096) for stability with mixed-precision training        
         audio = self.GU_audio(audio) 
-        audio = self.DAVEnet_projection(audio)
+        audio = self.DAVEnet_projection(audio).squeeze()
         if self.tri_modal and not self.tri_modal_fuse:
             text = self.GU_text_captions(self.text_pooling_caption(text))
             return audio, video, text
+        if self.extra_terms:
+            return audio, video, query.squeeze(), natural_audio.squeeze()
+
         return audio, video
 
 class Gated_Embedding_Unit(nn.Module):
@@ -159,3 +178,18 @@ class Sentence_Maxpool(nn.Module):
         x = self.fc(x)
         x = F.relu(x)
         return th.max(x, dim=1)[0]  
+
+class TwoLayerProjection(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super(TwoLayerProjection, self).__init__()
+        self.fc1 = nn.Linear(in_dim, 2*in_dim)
+        self.glu1 = nn.GLU()
+        self.fc2 = nn.Linear(in_dim, 2*out_dim)
+        self.glu2 = nn.GLU()
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.glu1(x)
+        x = self.fc2(x)
+        x = self.glu2(x)
+        return x

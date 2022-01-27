@@ -36,7 +36,8 @@ def get_args(description='Youtube-Text-Video'):
         '--checkpoint_dir',
         type=str,
         default='',
-        help='checkpoint model folder') 
+        help='checkpoint model folder')
+    parser.add_argument('--checkpoint_interval', type=int, default=1)
     parser.add_argument('--text_thresh', type=int, default=0,  
             help='If not 0, use text sim matching and set the threshold (nec. for youcook2)') 
     parser.add_argument('--eval_lang_retrieval', type=int, default=0,
@@ -52,6 +53,11 @@ def get_args(description='Youtube-Text-Video'):
     parser.add_argument('--two_level', type=int, default=0, help='use two-level fusion to integrate natural audio')
     parser.add_argument('--loss', type=int, default=0,
                                 help='0 for Masked Margin Softmax (MMS) loss, 1 for Adaptive Mean Margin (AMM) loss')
+    parser.add_argument('--one_way', type=int, default=0,
+                                help='Compute loss only one direction (speech --> video)?')
+    parser.add_argument('--extra_terms', type=int, default=0,
+                                help='Add extra terms to the loss for just video and just audio')
+    parser.add_argument('--ast', type=int, default=0, help='use AST to process natural audio')
     parser.add_argument('--apex_level', type=int, default=0,
                                 help='Apex (mixed precision) level: chose 0 for none, 1 for O1.')
     parser.add_argument('--random_audio_windows', type=int, default=1,
@@ -64,7 +70,7 @@ def get_args(description='Youtube-Text-Video'):
                                 help='use 1024 * x audio frames for msrvtt')
     parser.add_argument('--num_thread_reader', type=int, default=1,
                                 help='')
-    parser.add_argument('--embd_dim', type=int, default=2048,
+    parser.add_argument('--embd_dim', type=int, default=4096,
                                 help='embedding dim')
     parser.add_argument('--lr', type=float, default=0.0001,
                                 help='initial learning rate')
@@ -105,6 +111,7 @@ def get_args(description='Youtube-Text-Video'):
     parser.add_argument('--eval_youcook', type=int, default=0,
                                 help='Evaluate on YouCook2 data')
     parser.add_argument('--eval_smit', type=int, default=0, help='Evaluate on S-MiT data')
+    parser.add_argument('--test_smit', type=int, default=0, help='Evaluate on S-MiT test set')
     parser.add_argument('--sentence_dim', type=int, default=-1,
                                 help='sentence dimension')
     parser.add_argument(
@@ -131,5 +138,6 @@ def get_args(description='Youtube-Text-Video'):
     parser.add_argument('--smit_num_frames_multiplier', type=int, default=20, help='use 1024 * x audio frames for S-MiT captions')
     parser.add_argument('--smit_train_path', type=str, default='data/smit_train.pkl')
     parser.add_argument('--smit_val_path', type=str, default='data/smit_val.pkl')
+    parser.add_argument('--smit_test_path', type=str, default='data/smit_test.pkl')
     args = parser.parse_args()
     return args

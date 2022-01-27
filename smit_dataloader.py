@@ -12,6 +12,8 @@ import re
 from torch.utils.data.dataloader import default_collate
 import audio_to_spectrograms
 import os
+import time
+import random
 
 class SMiT_DataLoader(Dataset):
     """S-MiT dataset loader, modified from YouCook dataset loader."""
@@ -22,7 +24,7 @@ class SMiT_DataLoader(Dataset):
             we,
             we_dim=300,
             max_words=30,
-            num_frames_multiplier=20, # captions should be no longer than 20s
+            num_frames_multiplier=2, # captions should be no longer than 20s
             tri_modal=False,    
     ):
         """
@@ -61,11 +63,39 @@ class SMiT_DataLoader(Dataset):
             return th.zeros(self.max_words, self.we_dim)
 
     def __getitem__(self, idx):
+        end_time = time.time()
         # load 2d and 3d features (features are max-pooled over the time dimension)
         feat_2d = F.normalize(th.from_numpy(self.data[idx]['2d']).float(), dim=0)
         feat_3d = F.normalize(th.from_numpy(self.data[idx]['3d']).float(), dim=0)
+        # print('feat_2d shape', feat_2d.shape)
+        # print('feat 3d shape', feat_3d.shape)
         video = th.cat((feat_2d, feat_3d))
-
+        # print('video shape', video.shape)
+        vid_time = time.time()
+        unpooled2d = F.normalize(th.from_numpy(self.data[idx]['2d_full']).float(), dim=0)
+        unpooled3d = F.normalize(th.from_numpy(self.data[idx]['3d_full']).float(), dim=0)
+        # print('2d unpooled shape', unpooled2d.shape)
+        # print('3d unpooled shape', unpooled3d.shape)
+        tokens2d = unpooled2d.shape[0]
+        tokens3d = unpooled3d.shape[0]
+        if unpooled2d.shape[0] < 4:
+            # print('Adding', 3-unpooled2d.shape[0], '2d tokens')
+            unpooled2d = F.pad(unpooled2d, (0,0,0,4-unpooled2d.shape[0]), 'constant', 0)
+        elif unpooled2d.shape[0] > 4:
+            # print('Truncating', unpooled2d.shape[0]-4, '2d tokens')
+            unpooled2d = unpooled2d[:4]
+        if unpooled3d.shape[0] < 6:
+            # print('Adding', 5-unpooled3d.shape[0], '3d tokens')
+            unpooled3d = F.pad(unpooled3d, (0,0,0,6-unpooled3d.shape[0]), 'constant', 0)
+        elif unpooled3d.shape[0] > 6:
+            # print('Truncating', unpooled3d.shape[0]-6, '3d tokens')
+            unpooled3d = unpooled3d[:6]
+        video_unpooled = th.cat((unpooled2d, unpooled3d))
+        if video_unpooled.shape[0] != 10:
+            print('2d shape', unpooled2d.shape)
+            print('3d shape', unpooled3d.shape)
+        # print('video_unpooled shape', video_unpooled.shape)
+        unpooled_time = time.time()
         # load audio and zero pad/truncate if necessary
         """
         caption_audio_file = self.data[idx]['spoken_caption_path']
@@ -75,7 +105,8 @@ class SMiT_DataLoader(Dataset):
         caption_audio_feats = feats
         os.remove('temp1.wav')
         os.remove('temp2.wav')
-        """
+        
+        Commenting out to load audio features directly from pickle file
         caption_audio_file = '/nobackup/users/lynberry/caption_audio/'+self.data[idx]['id']+'.wav'
         caption_audio_feats = th.zeros((40,1024*self.num_frames_multiplier),dtype=th.float)
         nframes = 0
@@ -94,7 +125,7 @@ class SMiT_DataLoader(Dataset):
             caption_audio_feats = th.FloatTensor(caption_audio_feats)
         except:
             ... #print("failed on file", caption_audio_file)
-
+        caption_time = time.time()
         natural_audio_feats = th.zeros((40,3072),dtype=th.float) # should this be an empty tensor? Yes. what shape?
         if self.data[idx]['has_audio']:
             try:
@@ -102,7 +133,7 @@ class SMiT_DataLoader(Dataset):
                 feats, frames = audio_to_spectrograms.LoadAudio(natural_audio_file, use_raw_length=True)
                 natural_audio_feats = feats
     
-                target_length = 1024 * 3 # All clips are 3s long, so no self.num_frames_multiplier
+                target_length = 1024 * 1 # All clips are 3s long, so no self.num_frames_multiplier
                 nframes = natural_audio_feats.shape[1]
                 assert nframes == frames
                 p = target_length - nframes
@@ -116,6 +147,8 @@ class SMiT_DataLoader(Dataset):
             if natural_audio_feats.shape[1] != 3072:
                 print("file", natural_audio_file, "has feats shape", natural_audio_feats.shape)
                 print("p was", p, "with target length", target_length, "and nframes", nframes)
+        nat_time = time.time()
+        """
 
         caption = ''
         if self.tri_modal:
@@ -132,12 +165,46 @@ class SMiT_DataLoader(Dataset):
         if 'text_sim' in self.data[idx]: # TODO: this will always fail atm
             text_sim = self.data[idx]['text_sim']
 
-        assert caption_audio_feats.shape[1] == 20480
-        assert natural_audio_feats.shape[1] == 3072
+        # assert caption_audio_feats.shape[1] == 2048
+        # assert natural_audio_feats.shape[1] == 1024
         # print("caption_audio_feats.shape", caption_audio_feats.shape)
         # print("natural_audio_feats.shape", natural_audio_feats.shape)
+        # done_time = time.time()
+        # print("Times taken...")
+        # print("\tVideo processing:\t", vid_time-end_time)
+        # print("\tUnpooled video processing:\t", unpooled_time-vid_time)
+        # print("\tCaption processing:\t", caption_time-unpooled_time)
+        # print("\tNatural audio processing:\t", nat_time-caption_time)
+        # print("\tTotal time:\t", done_time-end_time)
+        
+        caption_audio_feats = self.data[idx]['caption_audio_feats']
+        natural_audio_feats = self.data[idx]['natural_audio_feats']
+
+        # print('caption shape before selecting random 10s', caption_audio_feats.shape)
+        # print('natural shape', natural_audio_feats.shape)
+
+        #try:
+        nframes = len(self.data[idx]['nframes'])
+        #except:
+        #    nframes = 0
+
+        # Adding 10s extraction from captions
+        if nframes > 1024:
+            start_index = random.randint(0,min(nframes,2048)-1024)
+        else:
+            start_index = 0
+
+        caption_audio_feats = caption_audio_feats[:,:,start_index:start_index+1024]
+
+        if int(caption_audio_feats.shape[2]) != 1024:
+            print('wrong length!')
+            print('num frames', nframes)
+            print('start_index', start_index)
+            print('stop_index', stop_index)
+
         return {'video': video, 'text': caption, 'video_id': self.data[idx]['id'],
                 'audio': caption_audio_feats, 'natural_audio': natural_audio_feats,
                 'nframes': nframes, 'task': task, 'start': start, 'end': end, 
-                'vid_id': vid_id, 'text_sim': text_sim}
+                'vid_id': vid_id, 'text_sim': text_sim, 'video_unpooled': video_unpooled, 
+                'has_audio':self.data[idx]['has_audio'], 'tokens2d':tokens2d, 'tokens3d':tokens3d}
         
