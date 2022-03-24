@@ -84,7 +84,7 @@ def get_args(description='Youtube-Text-Video'):
                                 help='Learning rate exp epoch decay')
     parser.add_argument('--n_display', type=int, default=200,
                                 help='Information display frequence')
-    parser.add_argument('--feature_dim', type=int, default=4096,
+    parser.add_argument('--feature_dim', type=int, default=2048,
                                 help='video feature dimension')
     parser.add_argument('--we_dim', type=int, default=300,
                                 help='word embedding dimension')
@@ -139,5 +139,9 @@ def get_args(description='Youtube-Text-Video'):
     parser.add_argument('--smit_train_path', type=str, default='data/smit_train.pkl')
     parser.add_argument('--smit_val_path', type=str, default='data/smit_val.pkl')
     parser.add_argument('--smit_test_path', type=str, default='data/smit_test.pkl')
+    parser.add_argument('--load_images', type=int, default=0, help='If 0, use pre-computed video features; if 1, compute features from images')
+    parser.add_argument('--use_amp', type=int, default=0, help='Whether to use Automatic Mixed Precision during training')
+    parser.add_argument('--train_top_k_2d', type=int, default=0, help='Number of layers to make trainable in 2d feature extractor')
+    parser.add_argument('--train_top_k_3d', type=int, default=0, help='Number of layers to make trainable in 3d feature extractor')
     args = parser.parse_args()
     return args

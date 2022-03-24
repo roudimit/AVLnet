@@ -6,13 +6,23 @@ from __future__ import print_function
 import torch.nn as nn
 import torch as th
 import torch.nn.functional as F
+from torchvision import transforms
+
 from model_davenet import load_DAVEnet
 from ast_models import ASTModel
+
+import sys
+sys.path.append('../')
+from video_feature_extractor.model import GlobalAvgPool
+from video_feature_extractor.model import load_extractor2d
+from moments_models.models import load_extractor3d
+
+# from pytorch_memlab import profile_every
 
 class Net(nn.Module):
     def __init__(
             self,
-            embd_dim=1024,
+            embd_dim=4096,
             video_dim=2048,
             we_dim=300,
             tri_modal=False,
@@ -21,8 +31,20 @@ class Net(nn.Module):
             two_level=False,
             use_ast=False,
             extra_terms=False,
+            load_images=False,
+            k_2d=0,
+            k_3d=0,
     ):
         super(Net, self).__init__()
+
+        # Load visual feature extractors
+        if load_images:
+            self.extractor2d = load_extractor2d(k_2d)
+            self.extractor3d = load_extractor3d(k_3d)
+        
+            self.normalize_video = transforms.Normalize([0.485, 0.456, 0.406],[0.229, 0.224, 0.225])
+            self.pool_extracted_features = GlobalAvgPool()
+
         self.DAVEnet = load_DAVEnet()
         self.DAVEnet_projection = nn.Linear(1024, embd_dim)
         self.GU_audio = TwoLayerProjection(1024, 1024)# Gated_Embedding_Unit(1024, 1024)
@@ -36,7 +58,7 @@ class Net(nn.Module):
             else:
                 self.GU_video = TwoLayerProjection(video_dim+embd_dim, embd_dim)# Gated_Embedding_Unit(video_dim+embd_dim, embd_dim)
         else:
-            self.GU_video = TwoLayerProjection(video_dim, embd_dim)# Gated_Embedding_Unit(video_dim, embd_dim)
+            self.GU_video = TwoLayerProjection(2*video_dim, embd_dim)# Gated_Embedding_Unit(video_dim, embd_dim)
         if tri_modal and not tri_modal_fuse:
             self.text_pooling_caption = Sentence_Maxpool(we_dim, embd_dim)
             self.GU_text_captions = Gated_Embedding_Unit(embd_dim, embd_dim)
@@ -50,11 +72,14 @@ class Net(nn.Module):
         self.two_level = two_level
         self.extra_terms = extra_terms
         self.use_ast = use_ast
+        self.load_images = load_images
+        self.embd_dim = embd_dim
+        self.video_dim = video_dim
         if use_ast:
-            self.GU_video = TwoLayerProjection(video_dim, embd_dim)# Gated_Embedding_Unit(video_dim, embd_dim)
-            self.AST = ASTModel(label_dim=embd_dim, input_fdim=40, input_tdim=1024)
-            self.mha = nn.MultiheadAttention(embed_dim=embd_dim, num_heads=2)#, batch_first=True)
-
+            self.GU_query = TwoLayerProjection(embd_dim, video_dim)# Gated_Embedding_Unit(video_dim, embd_dim)
+            self.AST = ASTModel(label_dim=video_dim, input_fdim=128, input_tdim=1024, audioset_pretrain=True)
+            self.mha = nn.MultiheadAttention(embed_dim=video_dim, num_heads=2)#, batch_first=True)
+            self.GU_video = TwoLayerProjection(video_dim, embd_dim)
     def save_checkpoint(self, path):
         th.save(self.state_dict(), path)
     
@@ -67,16 +92,36 @@ class Net(nn.Module):
             self.load_state_dict(th.load(path, map_location='cpu'), strict=False)
         print("Loaded model checkpoint from {}".format(path))
 
+    # @profile_every(1)
     def forward(self, video, audio_input, nframes, text=None, natural_audio_input=None, video_unpooled=None, has_audio=None, tokens2d=None, tokens3d=None):
+        if self.load_images:
+            #with th.no_grad():
+            normalized_frames = self.normalize_video(video)
+ 
+            # Sample only 3/8 frames for 2d extraction
+            # print('normalized_frames shape', normalized_frames.shape)
+            normalized_frames_short = normalized_frames[:,(0,3,6),:,:,:]
+            # print('normalized_frames_short shape', normalized_frames_short.shape)
+
+            normalized_frames_2d = normalized_frames_short.view(-1, normalized_frames_short.shape[2], normalized_frames_short.shape[3], normalized_frames_short.shape[4])
+            # print('normalized_frames_2d shape', normalized_frames_2d.shape)
+            
+            features_2d = self.extractor2d(normalized_frames_2d)
+            features_2d = features_2d.view(-1, 3, features_2d.shape[1])
+            normalized_frames_3d = normalized_frames.permute(0,2,1,3,4)
+            features_3d = self.extractor3d(normalized_frames_3d).squeeze()
+            pooled_2d = th.mean(features_2d, dim=1)
+            video = th.cat((pooled_2d, features_3d),dim=1)
+
         if natural_audio_input != None:
             if self.use_ast:
                 natural_audio = self.AST(natural_audio_input).unsqueeze(0).float()
                 video_unpooled = video_unpooled.permute(1,0,2)
                 video_tokens = th.cat((natural_audio,video_unpooled))
                 video_tokens = video_tokens
-                query = self.GU_video(video).unsqueeze(0)
+                query = self.GU_query(video).unsqueeze(0)
                 attn_out, _ = self.mha(query, video_tokens, video_tokens)
-                video = attn_out.squeeze()
+                video = self.GU_video(attn_out.squeeze())
             else:
                 natural_audio = self.nat_DAVEnet(natural_audio_input)
                 # pooling
@@ -100,6 +145,8 @@ class Net(nn.Module):
                 else:
                     video = self.GU_video(th.cat((video, natural_audio),dim=1))
         else:
+            # print('Given video shape', video.shape)
+            # print('with embd_dim', self.embd_dim, 'and video_dim', self.video_dim)
             video = self.GU_video(video)
 
 
