@@ -1,6 +1,7 @@
 import math
 import torch.nn as nn
 import numpy as np
+import torch as th
 
 def conv1x9(in_planes, out_planes, stride=1):
     """1x9 convolution with padding"""
@@ -94,8 +95,10 @@ class ResDavenet(nn.Module):
         return x
 
 def load_DAVEnet():
-    layer_widths = [128,128,256,512,1024]
+    layer_widths = [128,256,256,512,1024]
     layer_depths = [2,2,2,2]
     audio_model = ResDavenet(feat_dim=40, layers=layer_depths, convsize=9, layer_widths=layer_widths)
+
+    audio_model.load_state_dict(th.load('RDVQ_00000/models/best_audio_model.pth'))
 
     return audio_model

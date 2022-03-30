@@ -24,7 +24,7 @@ def compute_metrics(x, eval_lang_retrieval=False, eval_msrvtt=False):
     metrics['R5'] = float(np.sum(ind < 5)) / test_set_size
     metrics['R10'] = float(np.sum(ind < 10)) / test_set_size
     metrics['MR'] = np.median(ind) + 1
-    return metrics
+    return metrics, ind
 
 def print_computed_metrics(metrics):
     r1 = metrics['R1']
