@@ -23,19 +23,20 @@ def LoadAudio(path, target_length=2048, use_raw_length=False):
         target_length is the maximum number of frames stored (disable with use_raw_length)
         # NOTE: assumes audio in 16 kHz wav file
     """
+    #print("Using modified LoadAudio for AST")
     audio_type = 'melspectrogram'
     preemph_coef = 0.97
     sample_rate = 16000
     window_size = 0.025
     window_stride = 0.01
-    window_type = 'hamming'
-    num_mel_bins = 40
+    window_type = 'hanning'
+    num_mel_bins = 128
     padval = 0
     fmin = 20
     n_fft = int(sample_rate * window_size)
     win_length = int(sample_rate * window_size)
     hop_length = int(sample_rate * window_stride)
-    windows = {'hamming': scipy.signal.hamming}
+    windows = {'hamming': scipy.signal.hamming, 'hanning': scipy.signal.hanning}
     # load audio, subtract DC, preemphasis
     # NOTE: sr=None to avoid resampling (assuming audio already at 16 kHz sr
     y, sr = librosa.load(path, sr=None)
@@ -55,6 +56,8 @@ def LoadAudio(path, target_length=2048, use_raw_length=False):
     if use_raw_length:
         target_length = n_frames
     p = target_length - n_frames
+    #print('target length is', target_length)
+    #pritn('nframes is', n_frames)
     if p > 0:
         feats = np.pad(feats, ((0,0),(0,p)), 'constant',
             constant_values=(padval,padval))
