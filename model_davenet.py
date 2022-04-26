@@ -1,6 +1,7 @@
 import math
 import torch.nn as nn
 import numpy as np
+import torch as th
 
 def conv1x9(in_planes, out_planes, stride=1):
     """1x9 convolution with padding"""
@@ -77,9 +78,13 @@ class ResDavenet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        # print('x shape', x.shape)
         if x.dim() == 3:
             x = x.unsqueeze(1)
-        x = self.conv1(x)
+        # print('x shape after unsqueezing', x.shape)
+        x = self.conv1(x).contiguous()
+        # print('x shape after conv1', x.shape)
+        # .contiguous() was added by LAYNE 11/16/2021
         x = self.bn1(x)
         x = self.relu(x)
         x = self.layer1(x)
@@ -90,8 +95,10 @@ class ResDavenet(nn.Module):
         return x
 
 def load_DAVEnet():
-    layer_widths = [128,128,256,512,1024]
+    layer_widths = [128,256,256,512,1024]
     layer_depths = [2,2,2,2]
     audio_model = ResDavenet(feat_dim=40, layers=layer_depths, convsize=9, layer_widths=layer_widths)
+
+    audio_model.load_state_dict(th.load('RDVQ_00000/models/best_audio_model.pth'))
 
     return audio_model
